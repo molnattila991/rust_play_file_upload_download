@@ -2,44 +2,35 @@ use actix_multipart::Multipart;
 use actix_web::{post, App, Error, HttpResponse, HttpServer};
 
 pub mod files {
-    use std::io::Write;
-
     use actix_multipart::Multipart;
-    use actix_web::web;
     use futures::{StreamExt, TryStreamExt};
-    use imagesize::size;
+    use uuid::Uuid;
 
-    pub async fn save_file(mut payload: Multipart, file_path: String) -> Option<bool> {
-        // iterate over multipart stream
+    pub async fn save_file(mut payload: Multipart) -> Option<bool> {
         while let Ok(Some(mut field)) = payload.try_next().await {
-            // File::create is blocking operation, use threadpool
-            let mut f = std::fs::File::create(file_path.clone()).unwrap();
-                       
-            // Field in turn is stream of *Bytes* object
+            let id = Uuid::new_v4();
+            let extension = field
+                .content_disposition()
+                .get_filename()
+                .unwrap()
+                .split(".")
+                .last()
+                .unwrap();
+            let path = format!("images/{}.{}", id, extension);
+
             while let Some(chunk) = field.next().await {
-                let data = chunk.unwrap();
-                // println!("{:?}", data.to_ascii_lowercase());
-                // filesystem operations are blocking, we have to use threadpool
-                let res = f.write_all(&data).unwrap();
+                let _ = tokio::fs::write(&path, &chunk.unwrap()).await;
             }
         }
-        let img = image::open(file_path.clone()).unwrap();
-        let alma = img.resize(100, 100, image::imageops::FilterType::Nearest);
-        let muci = alma.save("path.png").unwrap();
-
-        // image::load_from_memory(buffer)
-
-        let valami = size(file_path).unwrap();
-        println!("{} {}", valami.width, valami.height);
 
         Some(true)
     }
 }
 
 #[post("/")]
-async fn index(mut payload: Multipart) -> Result<HttpResponse, Error> {
+async fn index(payload: Multipart) -> Result<HttpResponse, Error> {
     // iterate over multipart stream
-    let upload_status = files::save_file(payload, "./filename.png".to_string()).await;
+    let upload_status = files::save_file(payload).await;
 
     match upload_status {
         Some(true) => Ok(HttpResponse::Ok()
